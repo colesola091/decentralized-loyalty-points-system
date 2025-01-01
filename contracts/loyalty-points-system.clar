@@ -73,3 +73,66 @@
         success (unwrap-panic (as-max-len? (append previous-results success) u100))
         error previous-results))
 
+(define-public (burn-point (point-id uint))
+    (let ((point-owner (unwrap! (nft-get-owner? loyalty-point point-id) err-token-not-found)))
+        (asserts! (is-eq tx-sender point-owner) err-not-token-owner)
+        (asserts! (not (has-point-burned point-id)) err-already-burned)
+        (try! (nft-burn? loyalty-point point-id point-owner))
+        (map-set burned-points point-id true)
+        (ok true)))
+
+(define-public (transfer-point (point-id uint) (sender principal) (recipient principal))
+    (begin
+        (asserts! (is-eq recipient tx-sender) err-not-token-owner)
+        (asserts! (not (has-point-burned point-id)) err-already-burned)
+        (let ((actual-sender (unwrap! (nft-get-owner? loyalty-point point-id) err-not-token-owner)))
+            (asserts! (is-eq actual-sender sender) err-not-token-owner)
+            (try! (nft-transfer? loyalty-point point-id sender recipient))
+            (ok true))))
+
+(define-public (update-point-uri (point-id uint) (new-uri (string-ascii 256)))
+    (begin
+        (let ((point-owner (unwrap! (nft-get-owner? loyalty-point point-id) err-token-not-found)))
+            (asserts! (is-eq point-owner tx-sender) err-not-token-owner)
+            (asserts! (is-valid-uri new-uri) err-invalid-uri)
+            (map-set point-uri point-id new-uri)
+            (ok true))))
+
+;; Read-Only Functions
+(define-read-only (get-point-uri (point-id uint))
+    (ok (map-get? point-uri point-id)))
+
+(define-read-only (get-point-owner (point-id uint))
+    (ok (nft-get-owner? loyalty-point point-id)))
+
+(define-read-only (get-last-point-id)
+    (ok (var-get last-point-id)))
+
+(define-read-only (is-point-burned (point-id uint))
+    (ok (has-point-burned point-id)))
+
+(define-read-only (get-batch-point-ids (start-id uint) (count uint))
+    (ok (map uint-to-response 
+        (unwrap-panic (as-max-len? 
+            (list-tokens start-id count) 
+            u100)))))
+
+(define-private (uint-to-response (id uint))
+    {
+        point-id: id,
+        uri: (unwrap-panic (get-point-uri id)),
+        owner: (unwrap-panic (get-point-owner id)),
+        burned: (unwrap-panic (is-point-burned id))
+    })
+
+(define-private (list-tokens (start uint) (count uint))
+    (map + 
+        (list start) 
+        (generate-sequence count)))
+
+(define-private (generate-sequence (length uint))
+    (map - (list length)))
+
+;; Contract initialization
+(begin
+    (var-set last-point-id u0))
